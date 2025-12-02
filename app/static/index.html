@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ANABI Listings</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+
+<body>
+    <div x-data="listingsApp()" x-init="init()" class="app-container">
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="top-bar">
+                <h1>ANABI Listings</h1>
+                <div class="view-controls">
+                    <div class="view-toggles">
+                        <button @click="view = 'grid'" :class="{ 'active': view === 'grid' }" title="Grid View">
+                            <i class="fas fa-th-large"></i>
+                        </button>
+                        <button @click="view = 'list'" :class="{ 'active': view === 'list' }" title="List View">
+                            <i class="fas fa-list"></i>
+                        </button>
+                    </div>
+                    <div class="per-page-selector">
+                        <label>Per page:</label>
+                        <select x-model="filters.page_size" @change="fetchListings()">
+                            <option value="12">12</option>
+                            <option value="24">24</option>
+                            <option value="48">48</option>
+                        </select>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Loading State -->
+            <div x-show="loading" class="loading-state">
+                <i class="fas fa-spinner fa-spin"></i> Loading listings...
+            </div>
+
+            <!-- Empty State -->
+            <div x-show="!loading && listings.length === 0" class="empty-state">
+                <p>No listings found matching your criteria.</p>
+            </div>
+
+            <!-- Listings Grid/List -->
+            <div x-show="!loading && listings.length > 0 && view !== 'detail'"
+                :class="view === 'grid' ? 'listings-grid' : 'listings-list'">
+                <template x-for="listing in listings" :key="listing.id">
+                    <div class="listing-card" @click="openDetail(listing)">
+                        <div class="card-image">
+                            <img :src="listing.images && listing.images.length > 0 ? listing.images[0] : 'https://via.placeholder.com/300x200?text=No+Image'"
+                                :alt="listing.title" loading="lazy">
+
+                            <!-- Status Badges -->
+                            <div class="card-badges">
+                                <template x-if="listing.auction_status === 'Licitatie in desfasurare'">
+                                    <span class="badge badge-active">Active Bidding</span>
+                                </template>
+                                <template x-if="listing.status === 'NEADJUDECAT'">
+                                    <span class="badge badge-unsold">Unsold</span>
+                                </template>
+                                <template x-if="listing.status === 'ADJUDECAT'">
+                                    <span class="badge badge-sold">Sold</span>
+                                </template>
+                            </div>
+                        </div>
+                        <div class="card-content">
+                            <h3 x-text="listing.title"></h3>
+                            <div class="card-meta">
+                                <span class="price" x-text="listing.starting_price"></span>
+                                <span class="location">
+                                    <i class="fas fa-map-marker-alt"></i>
+                                    <span x-text="listing.city + ', ' + listing.county"></span>
+                                </span>
+                            </div>
+                            <p class="description" x-text="truncate(listing.description, 100)"></p>
+                            <div class="card-footer">
+                                <span class="date">
+                                    <i class="far fa-clock"></i>
+                                    <span x-text="formatDate(listing.auction_start_date)"></span>
+                                </span>
+                                <button class="btn-details">View Details</button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <!-- Detail View -->
+            <div x-show="view === 'detail' && selectedListing" class="detail-view" x-transition>
+                <button @click="closeDetail()" class="btn-back">
+                    <i class="fas fa-arrow-left"></i> Back to Listings
+                </button>
+
+                <div class="detail-container">
+                    <div class="detail-header">
+                        <h1 x-text="selectedListing?.title"></h1>
+                        <div class="detail-badges">
+                            <template x-if="selectedListing?.auction_status === 'Licitatie in desfasurare'">
+                                <span class="badge badge-active badge-large">Active Bidding</span>
+                            </template>
+                            <template x-if="selectedListing?.status === 'NEADJUDECAT'">
+                                <span class="badge badge-unsold badge-large">Unsold</span>
+                            </template>
+                            <template x-if="selectedListing?.status === 'ADJUDECAT'">
+                                <span class="badge badge-sold badge-large">Sold</span>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div class="detail-grid">
+                        <!-- Left Column: Images -->
+                        <div class="detail-images">
+                            <div class="main-image">
+                                <img :src="selectedListing?.images && selectedListing?.images.length > 0 ? selectedListing?.images[0] : 'https://via.placeholder.com/600x400?text=No+Image'"
+                                    :alt="selectedListing?.title">
+                            </div>
+                            <div class="image-thumbnails"
+                                x-show="selectedListing?.images && selectedListing?.images.length > 1">
+                                <template x-for="img in selectedListing?.images" :key="img">
+                                    <img :src="img" class="thumbnail"
+                                        @click="$el.closest('.detail-images').querySelector('.main-image img').src = img">
+                                </template>
+                            </div>
+                            
+                            <!-- Description moved below photos -->
+                            <div class="info-card description-card">
+                                <h3>Description</h3>
+                                <p x-text="selectedListing?.description" class="detail-description"></p>
+                                <template x-if="selectedListing?.observations">
+                                    <div class="observations-section">
+                                        <h4>Observations</h4>
+                                        <p x-text="selectedListing?.observations" class="detail-description"></p>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
+
+                        <!-- Right Column: Info -->
+                        <div class="detail-info">
+                            <div class="info-card price-card">
+                                <span class="label">Starting Price</span>
+                                <div class="value price-large" x-text="selectedListing?.starting_price">
+                                </div>
+                                <template x-if="selectedListing?.current_offer">
+                                    <div class="current-offer-section">
+                                        <span class="label">Current Offer</span>
+                                        <div class="value price-medium"
+                                            x-text="selectedListing?.current_offer"></div>
+                                    </div>
+                                </template>
+                            </div>
+
+                            <div class="info-card">
+                                <h3>Auction Details</h3>
+                                <div class="info-row" x-show="selectedListing?.category">
+                                    <span class="label">Category:</span>
+                                    <span class="value" x-text="selectedListing?.category"></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Status:</span>
+                                    <span class="value" x-text="selectedListing?.status"></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Auction Status:</span>
+                                    <span class="value" x-text="selectedListing?.auction_status"></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Start Date:</span>
+                                    <span class="value"
+                                        x-text="formatDateTime(selectedListing?.auction_start_date)"></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">End Date:</span>
+                                    <span class="value"
+                                        x-text="formatDateTime(selectedListing?.auction_end_date)"></span>
+                                </div>
+                                <div class="info-row" x-show="selectedListing?.registration_deadline">
+                                    <span class="label">Registration Deadline:</span>
+                                    <span class="value"
+                                        x-text="formatDateTime(selectedListing?.registration_deadline)"></span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Location:</span>
+                                    <span class="value"
+                                        x-text="selectedListing?.city + ', ' + selectedListing?.county"></span>
+                                </div>
+                                <div class="info-row" x-show="selectedListing?.address">
+                                    <span class="label">Address:</span>
+                                    <span class="value" x-text="selectedListing?.address"></span>
+                                </div>
+                            </div>
+
+                            <div class="info-card"
+                                x-show="selectedListing?.contact_person || selectedListing?.contact_phone || selectedListing?.contact_email">
+                                <h3>Contact Information</h3>
+                                <div class="info-row" x-show="selectedListing?.contact_person">
+                                    <span class="label">Person:</span>
+                                    <span class="value" x-text="selectedListing?.contact_person"></span>
+                                </div>
+                                <div class="info-row" x-show="selectedListing?.contact_phone">
+                                    <span class="label">Phone:</span>
+                                    <span class="value" x-text="selectedListing?.contact_phone"></span>
+                                </div>
+                                <div class="info-row" x-show="selectedListing?.contact_email">
+                                    <span class="label">Email:</span>
+                                    <span class="value" x-text="selectedListing?.contact_email"></span>
+                                </div>
+                            </div>
+
+                            <div class="info-card"
+                                x-show="selectedListing?.documents && selectedListing?.documents.length > 0">
+                                <h3>Documents</h3>
+                                <ul class="document-list">
+                                    <template x-for="doc in selectedListing?.documents" :key="doc">
+                                        <li>
+                                            <a :href="doc" target="_blank" class="document-link">
+                                                <i class="fas fa-file-pdf"></i> Download Document
+                                            </a>
+                                        </li>
+                                    </template>
+                                </ul>
+                            </div>
+
+                            <div class="info-card" x-show="selectedListing?.detail_url">
+                                <a :href="selectedListing?.detail_url" target="_blank" class="btn-external">
+                                    View on ANABI Website <i class="fas fa-external-link-alt"></i>
+                                </a>
+                            </div>
+
+                            <div class="info-card meta-info">
+                                <small>ID: <span x-text="selectedListing?.id"></span></small>
+                                <br>
+                                <small>Last Updated: <span
+                                        x-text="formatDateTime(selectedListing?.updated_at)"></span></small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pagination -->
+            <div class="pagination" x-show="listings.length > 0 && view !== 'detail'">
+                <button @click="prevPage()" :disabled="filters.page === 1">Previous</button>
+                <span x-text="'Page ' + filters.page"></span>
+                <button @click="nextPage()" :disabled="listings.length < filters.page_size">Next</button>
+            </div>
+        </main>
+
+        <!-- Sidebar (Right) -->
+        <aside class="sidebar">
+            <div class="sidebar-section">
+                <h2>Search & Filter</h2>
+
+                <div class="form-group">
+                    <label>Search</label>
+                    <div class="search-input-group">
+                        <div class="search-input" style="margin-bottom: 8px;">
+                            
+                            <input type="text" x-model="filters.search" @keydown.enter="fetchListings()"
+                                placeholder="Search title, description...">
+                        </div>
+                        <button @click="fetchListings()" class="btn-search" style="padding: 0.225rem; width: 100%;">Search</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Category</label>
+                    <select x-model="filters.category" @change="fetchListings()">
+                        <option value="">All Categories</option>
+                        <option value="Imobiliare">Real Estate</option>
+                        <option value="Autovehicule">Vehicles</option>
+                        <option value="Bunuri mobile">Mobile Goods</option>
+                        <!-- Add more categories as needed -->
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Status</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" x-model="filters.status_unsold" @change="fetchListings()">
+                            <span>Unsold Items</span>
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" x-model="filters.status_active" @change="fetchListings()">
+                            <span>Active Biddings</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Price Range (RON)</label>
+                    <div class="price-inputs">
+                        <input type="number" x-model.debounce.500ms="filters.min_price" @input="fetchListings()"
+                            placeholder="Min">
+                        <input type="number" x-model.debounce.500ms="filters.max_price" @input="fetchListings()"
+                            placeholder="Max">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Location</label>
+                    <input type="text" x-model.debounce.500ms="filters.county" @input="fetchListings()"
+                        placeholder="County">
+                    <input type="text" x-model.debounce.500ms="filters.city" @input="fetchListings()" placeholder="City"
+                        style="margin-top: 5px;">
+                </div>
+
+                <button @click="resetFilters()" class="btn-reset">Reset Filters</button>
+            </div>
+
+            <div class="sidebar-section subscription-section">
+                <h2><i class="fas fa-bell"></i> Notifications</h2>
+                <p class="small-text">Get notified when new listings match your current filters.</p>
+
+                <div class="form-group">
+                    <label>Email Address</label>
+                    <input type="email" x-model="subscriptionEmail" placeholder="your@email.com">
+                </div>
+
+                <button @click="subscribe()" class="btn-subscribe" :disabled="!subscriptionEmail">
+                    Subscribe to Updates
+                </button>
+
+                <div class="active-subscriptions" x-show="subscriptions.length > 0">
+                    <h3>Active Subscriptions</h3>
+                    <ul>
+                        <template x-for="sub in subscriptions" :key="sub.id">
+                            <li>
+                                <div class="sub-info">
+                                    <span class="sub-email" x-text="sub.email"></span>
+                                    <span class="sub-date" x-text="formatDate(sub.created_at)"></span>
+                                </div>
+                                <button @click="deleteSubscription(sub.id)" class="btn-delete-sub" title="Unsubscribe">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </li>
+                        </template>
+                    </ul>
+                </div>
+            </div>
+        </aside>
+
+    </div>
+    <script src="/static/js/app.js"></script>
+</body>
+
+</html>
